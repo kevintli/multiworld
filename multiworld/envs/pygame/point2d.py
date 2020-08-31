@@ -394,7 +394,6 @@ class Point2DEnv(MultitaskEnv, Serializable):
                           self.boundary_dist),
                 render_onscreen=self.render_onscreen,
             )
-        print("Calling self.draw")
         self.draw(self.drawer)
         img = self.drawer.get_image()
         if self.images_are_rgb:
@@ -449,27 +448,25 @@ class Point2DEnv(MultitaskEnv, Serializable):
             print('\n\n RENDER ERROR \n\n')
 
         for wall in self.walls:
-            print("Drawing white wall:", wall)
-            print(wall.endpoint1, wall.endpoint2, wall.endpoint3, wall.endpoint4)
             drawer.draw_segment(
                 wall.endpoint1,
                 wall.endpoint2,
-                Color('white'),
+                Color('black'),
             )
             drawer.draw_segment(
                 wall.endpoint2,
                 wall.endpoint3,
-                Color('white'),
+                Color('black'),
             )
             drawer.draw_segment(
                 wall.endpoint3,
                 wall.endpoint4,
-                Color('white'),
+                Color('black'),
             )
             drawer.draw_segment(
                 wall.endpoint4,
                 wall.endpoint1,
-                Color('white'),
+                Color('black'),
             )
         drawer.render()
 
@@ -795,6 +792,26 @@ class Point2DWallEnv(Point2DEnv):
                     -self.boundary_dist + self.inner_wall_max_dist * 2,
                     -self.boundary_dist + self.inner_wall_max_dist,
                     0,
+                ),
+            ],
+            "horizontal-maze": [
+                HorizontalWall(
+                    self.ball_radius,
+                    -self.boundary_dist/2,
+                    -self.boundary_dist,
+                    self.inner_wall_max_dist,
+                ),
+                HorizontalWall(
+                    self.ball_radius,
+                    0,
+                    -self.inner_wall_max_dist,
+                    self.boundary_dist
+                ),
+                HorizontalWall(
+                    self.ball_radius,
+                    self.boundary_dist/2,
+                    -self.boundary_dist,
+                    self.inner_wall_max_dist,
                 ),
             ],
             None: [],
