@@ -157,13 +157,18 @@ class Point2DEnv(MultitaskEnv, Serializable):
             'radius': self.target_radius,
             'target_position': self._target_position,
             'distance_to_target': distance_to_target,
-            # TODO (kevintli): Make this work for general mazes
-            # 'manhattan_dist_to_target': self._medium_maze_manhattan_distance(ob['state_achieved_goal'], ob['state_desired_goal']),
             'velocity': velocities,
             'speed': np.linalg.norm(velocities),
             'is_success': is_success,
             'ext_reward': self._ext_reward,
         }
+
+        if hasattr(self, 'wall_shape'):
+            if self.wall_shape == 'medium-maze':
+                info['manhattan_dist_to_target'] = self._medium_maze_manhattan_distance(ob['state_achieved_goal'], ob['state_desired_goal'])
+            elif self.wall_shape == 'hard-maze':
+                info['manhattan_dist_to_target'] = self._hard_maze_goal_distance(ob['state_achieved_goal'], ob['state_desired_goal'])
+
         if self.use_count_reward:
             info['count_bonus'] = self._count_bonus
 
@@ -222,6 +227,41 @@ class Point2DEnv(MultitaskEnv, Serializable):
         obs['onehot_observation'] = pos_onehot
 
         return obs
+
+    def _hard_maze_goal_distance(self, s1, goal=None):
+        s1 = s1.copy()
+        x1,  y1 = s1[:,0], s1[:,1]
+        dist = np.zeros(len(s1))
+        
+        top_section = y1 <= -2
+        dist[top_section] += np.abs(2 - x1[top_section]) # Move horizontally to corner
+        dist[top_section] += -2 - y1[top_section] # Move vertically to corner
+        x1[top_section], y1[top_section] = 2, -2
+        
+        right_section = x1 >= 2
+        dist[right_section] += x1[right_section] - 2 # Move horizontally
+        dist[right_section] += np.abs(2 - y1[right_section]) # Move vertically to corner
+        x1[right_section], y1[right_section] = 2, 2
+        
+        bottom_section = y1 >= 2
+        dist[bottom_section] += np.abs(-2 - x1[bottom_section]) # Move horizontally
+        dist[bottom_section] += y1[bottom_section] - 2 # Move vertically to corner
+        x1[bottom_section], y1[bottom_section] = -2, 2
+        
+        left_section = x1 <= -2
+        dist[left_section] += (-2 - x1[left_section]) # Move horizontally
+        dist[left_section] += np.abs(y1[left_section]) # Move vertically to corner
+        x1[left_section], y1[left_section] = -2, 0
+        
+        mid_section = np.logical_and(y1 <= 0, y1 >= -2)
+        dist[mid_section] += np.abs(x1[mid_section]) # Move horizontally
+        dist[mid_section] += np.abs(y1[mid_section]) # Move vertically to corner
+        
+        # Move to goal!!!
+        dist += np.abs(x1 - (-0.5))
+        dist += np.abs(y1 - 1.25)
+        
+        return dist
 
     def _medium_maze_manhattan_distance(self, s1, s2):
         # Maze wall positions
