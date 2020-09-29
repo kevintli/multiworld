@@ -230,6 +230,9 @@ class Point2DEnv(MultitaskEnv, Serializable):
 
     def _hard_maze_goal_distance(self, s1, goal=None):
         s1 = s1.copy()
+        if len(s1.shape) == 1:
+            s1 = s1[None]
+
         x1,  y1 = s1[:,0], s1[:,1]
         dist = np.zeros(len(s1))
         
