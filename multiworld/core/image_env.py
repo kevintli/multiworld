@@ -191,7 +191,7 @@ class ImageEnv(ProxyEnv, MultitaskEnv):
         return image_obs.flatten()
 
     def render(self, *args, **kwargs):
-        self.wrapped_env.render(*args, **kwargs)
+        return self.wrapped_env.render(*args, **kwargs)
 
     def enable_render(self):
         self._render_local = True
