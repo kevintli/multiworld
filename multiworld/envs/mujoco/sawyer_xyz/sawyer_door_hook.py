@@ -56,6 +56,8 @@ class SawyerDoorHookEnv(
         self.reward_type = reward_type
         self.indicator_threshold = indicator_threshold
 
+        print(f"Sawyer Door Hook Env: Using reward type {self.reward_type}, indicator threshold {self.indicator_threshold}")
+
         self.fix_goal = fix_goal
         self.fixed_goal = np.array(fixed_goal)
         self.goal_space = Box(np.array(goal_low), np.array(goal_high), dtype=np.float32)

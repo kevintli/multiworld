@@ -1137,13 +1137,12 @@ def create_image_48_sawyer_pickup_easy_v0():
     )
 
 def register_mujoco_envs():
-    # import ipdb; ipdb.set_trace()
     global REGISTERED
     if REGISTERED:
         return
     REGISTERED = True
     LOGGER.info("Registering multiworld mujoco gym environments")
-    # register_classic_mujoco_envs()
+    register_classic_mujoco_envs()
     # register_sawyer_envs()
     register_goal_example_envs()
 
@@ -1770,6 +1769,33 @@ def register_development_sawyer_envs():
 
 
 def register_classic_mujoco_envs():
+    register(
+        id='Ant-MazeSEnv-v0',
+        entry_point='multiworld.envs.mujoco.classic_mujoco.ant_maze:AntMazeEnv',
+        tags={
+            'git-commit-hash': '14880b1',
+            'author': 'vitchyr'
+        },
+        kwargs=dict(
+            # model_path='classic_mujoco/ant_maze_gear30_small_dt3.xml',
+            model_path='classic_mujoco/ant_maze_gear30_small_dt3_with_invis.xml',
+            goal_low=[-7, -5.5],
+            goal_high=[7, 5.5],
+            goal_is_xy=True,
+            goal_is_qpos=False,
+            frame_skip=5,
+            init_qpos=[
+                -6, 4.5, 0.565, 1,
+                0, 0, 0,
+                0, 1., 0., -1., 0., -1., 0., 1.,
+            ],
+            init_xy_mode='corner',
+            goal_sampling_strategy='uniform',
+            presampled_goal_paths='classic_mujoco/AntMazeSmall30RandomInitFs5Dt3Env-v0-states.npy',
+            reward_type='xy_dense',
+            terminate_when_unhealthy=False,
+        ),
+    )
     register(
         id='LowGearAnt-v0',
         entry_point='multiworld.envs.mujoco.classic_mujoco.ant:AntEnv',
