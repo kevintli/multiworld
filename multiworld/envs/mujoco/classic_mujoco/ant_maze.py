@@ -89,6 +89,21 @@ class AntMazeEnv(AntEnv):
             
         return x_dist + y_dist
 
+    def _compute_xy_distances_fixed(self, obs):
+        achieved_goals = obs['xy_achieved_goal']
+        desired_goals = np.repeat(self.diagnostics_goal[None], len(achieved_goals), axis=0)
+        diff = achieved_goals - desired_goals
+        return np.linalg.norm(diff, ord=self.norm_order, axis=1)
+
+    def compute_rewards(self, actions, obs):
+        if self.reward_type == 'xy_manhattan':
+            r = - self._get_manhattan_distance(obs['xy_achieved_goal'], self.diagnostics_goal)
+        elif self.reward_type == 'xy_dense_fixed_goal':
+            r = - self._compute_xy_distances_fixed(obs)
+        else:
+            r = super(AntMazeEnv, self).compute_rewards(actions, obs)
+        return r
+
     def get_diagnostics(self, paths, prefix=''):
         statistics = OrderedDict()
         for stat_name in [
