@@ -91,10 +91,10 @@ class SawyerDoorHookEnv(
     def viewer_setup(self):
         self.viewer.cam.trackbodyid = -1
         self.viewer.cam.lookat[0] = -.2
-        self.viewer.cam.lookat[1] = .55
-        self.viewer.cam.lookat[2] =  0.6
-        self.viewer.cam.distance = 0.25
-        self.viewer.cam.elevation = -60
+        self.viewer.cam.lookat[1] = .5
+        self.viewer.cam.lookat[2] =  0.3
+        self.viewer.cam.distance = 1.5
+        self.viewer.cam.elevation = -30
         self.viewer.cam.azimuth = 360
 
     def step(self, action):
@@ -301,6 +301,8 @@ class SawyerDoorHookRandomInitEnv(SawyerDoorHookEnv):
                 self.step(np.asarray([0., -1., 1.0]))
             for _ in range(10):
                 self.step(np.asarray([0., -1., 0]))
+            # for _ in range(10):
+                # self.step(np.asarray([1, 0., 0]))
             if np.random.uniform(low=0., high=1.) > 0.5:
                 self._set_door_pos(np.random.uniform(low=0., high=0.3))
             else:
