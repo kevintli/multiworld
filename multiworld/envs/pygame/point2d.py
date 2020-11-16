@@ -89,6 +89,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
             low, high = init_pos_range
             self.init_pos_range = spaces.Box(
                 np.array(low), np.array(high), dtype='float32')
+            print(f"[Point2D] Using initial pos range of low={low}, high={high}")
 
         if not target_pos_range:
             self.target_pos_range = self.obs_range
@@ -803,6 +804,32 @@ class Point2DWallEnv(Point2DEnv):
                     self.boundary_dist/3,
                     -self.inner_wall_max_dist,
                     self.boundary_dist
+                ),
+            ],
+            "double-medium-maze": [
+                VerticalWall(
+                    self.ball_radius,
+                    -3/5 * self.boundary_dist,
+                    -self.inner_wall_max_dist,
+                    self.boundary_dist
+                ),
+                VerticalWall(
+                    self.ball_radius,
+                    -1/5 * self.boundary_dist,
+                    -self.boundary_dist,
+                    self.inner_wall_max_dist,
+                ),
+                VerticalWall(
+                    self.ball_radius,
+                    1/5 * self.boundary_dist,
+                    -self.inner_wall_max_dist,
+                    self.boundary_dist
+                ),
+                VerticalWall(
+                    self.ball_radius,
+                    3/5 * self.boundary_dist,
+                    -self.boundary_dist,
+                    self.inner_wall_max_dist,
                 ),
             ],
             "hard-maze": [
