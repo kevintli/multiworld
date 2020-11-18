@@ -29,10 +29,10 @@ def register_goal_example_envs():
         kwargs={
             'fix_goal': True,
             'fixed_goal': (0.02, 0.45, 0.15, 0.80),
-            'indicator_threshold': (0.1, 0.05),
+            'indicator_threshold': (0.02, 0.05),
             'reward_type': 'angle_success',
             'hand_low': (-0.3, 0.30, -0.4),
-            'hand_high': (0.3, 1.5, .40),
+            'hand_high': (0.3, 0.65, .40),
             'min_angle': 0.0,
             'max_angle': 0.83,
             'reset_free': False,

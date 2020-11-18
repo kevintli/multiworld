@@ -15,6 +15,9 @@ from multiworld.envs.env_util import (
 from multiworld.envs.pygame.pygame_viewer import PygameViewer
 from multiworld.envs.pygame.walls import VerticalWall, HorizontalWall
 
+N_SHUFFLE_BINS = 16
+MAZE_LOW = -4
+MAZE_HIGH = 4
 
 class Point2DEnv(MultitaskEnv, Serializable):
     """
@@ -35,6 +38,8 @@ class Point2DEnv(MultitaskEnv, Serializable):
             walls=None,
             init_pos_range=None,
             target_pos_range=None,
+            sparse_goals=None,
+            shuffle_states=False,
             images_are_rgb=False,  # else black and white
             show_goal=True,
             n_bins=10,
@@ -65,10 +70,15 @@ class Point2DEnv(MultitaskEnv, Serializable):
         self.show_discrete_grid = show_discrete_grid
         self.images_are_rgb = images_are_rgb
         self.show_goal = show_goal
+        self.sparse_goals = sparse_goals
+        self.shuffle_states = shuffle_states
 
         self.x_bins = np.linspace(-self.boundary_dist, self.boundary_dist, self.n_bins)
         self.y_bins = np.linspace(-self.boundary_dist, self.boundary_dist, self.n_bins)
         self.bin_counts = np.ones((self.n_bins + 1, self.n_bins + 1))
+
+        self._random_mapping_x = np.random.permutation(range(N_SHUFFLE_BINS))
+        self._random_mapping_y = np.random.permutation(range(N_SHUFFLE_BINS))
 
         self.max_target_distance = self.boundary_dist - self.target_radius
 
@@ -80,6 +90,8 @@ class Point2DEnv(MultitaskEnv, Serializable):
 
         o = self.boundary_dist * np.ones(2)
         self.obs_range = spaces.Box(-o, o, dtype='float32')
+
+        print(f"[Point2D] Using boundary dist: {self.boundary_dist}, obs space: ({self.obs_range.low}, {self.obs_range.high})")
 
         if not init_pos_range:
             self.init_pos_range = self.obs_range
@@ -164,11 +176,22 @@ class Point2DEnv(MultitaskEnv, Serializable):
             'ext_reward': self._ext_reward,
         }
 
+        if self.sparse_goals is not None:
+            # Set reward for anything within threshold of goal(s) to 1
+            # (ignore any classifier reward)
+            goals, threshold = self.sparse_goals
+            min_dist = self.compute_min_dist(goals)
+            info['is_sparse_success'] = min_dist < threshold
+
         if hasattr(self, 'wall_shape'):
             if self.wall_shape == 'medium-maze':
                 info['manhattan_dist_to_target'] = self._medium_maze_manhattan_distance(ob['state_achieved_goal'], ob['state_desired_goal'])
             elif self.wall_shape == 'hard-maze':
                 info['manhattan_dist_to_target'] = self._hard_maze_goal_distance(ob['state_achieved_goal'], ob['state_desired_goal'])
+            elif self.wall_shape == 'double-maze':
+                goals, threshold = self.sparse_goals
+                info['manhattan_dist_to_sparse_goal'] = self.compute_min_dist(goals, self._double_maze_manhattan_distance)
+                info['manhattan_dist_to_target'] = self.compute_min_dist(ob['state_desired_goal'], self._double_maze_manhattan_distance)
 
         if self.use_count_reward:
             info['count_bonus'] = self._count_bonus
@@ -176,6 +199,18 @@ class Point2DEnv(MultitaskEnv, Serializable):
         done = False
         return ob, reward, done, info
 
+    def compute_min_dist(self, goals, distance_fn=self._l2_distance_fn):
+        dists = []
+        if len(goals.shape) == 1:
+            goals = goals[None]
+        for goal in goals:
+            dist = np.linalg.norm(self._position - goal, axis=-1)
+            dists.append(dist)
+        min_dist = np.array(dists).min(axis=0)
+        return min_dist
+
+    def _l2_distance_fn(self, s1, s2):
+        return np.linalg.norm(s1 - s2, axis=-1)
 
     def reset(self):
         # TODO: Make this more general
@@ -211,12 +246,37 @@ class Point2DEnv(MultitaskEnv, Serializable):
         x_d, y_d = np.digitize(x, self.x_bins), np.digitize(y, self.y_bins)
         return np.array([x_d, y_d])
 
+    def _discretized_states(self, states, bins=16, low=-4, high=4):
+        """
+        Converts continuous to discrete states.
+        
+        Params
+        - states: A shape (n, 2) batch of continuous observations
+        - bins: Number of bins for both x and y coordinates
+        - low: Lowest value (inclusive) for continuous x and y
+        - high: Highest value (inclusive) for continuous x and y
+        """
+        bin_size = (high - low) / bins
+        shifted_states = states - low
+        return np.clip(shifted_states // bin_size, 0, bins - 1).astype(np.int32)
+
+    def _get_shuffled_states(self, states):
+        if len(states.shape) == 1:
+            states = states[None]
+        states = self._discretized_states(states, bins=N_SHUFFLE_BINS, low=MAZE_LOW, high=MAZE_HIGH)
+        results = (np.hstack([self._random_mapping_x[states[:,0]][:,None], 
+                              self._random_mapping_y[states[:,1]][:,None]]) - 8) / 2
+        return results
+
     def _get_obs(self):
+        state_obs = self._get_shuffled_states(self._position.copy()).squeeze() \
+            if self.shuffle_states else self._position.copy()
+
         obs = collections.OrderedDict(
             observation=self._position.copy(),
             desired_goal=self._target_position.copy(),
             achieved_goal=self._position.copy(),
-            state_observation=self._position.copy(),
+            state_observation=state_obs,
             state_desired_goal=self._target_position.copy(),
             state_achieved_goal=self._position.copy(),
         )
@@ -318,6 +378,66 @@ class Point2DEnv(MultitaskEnv, Serializable):
             
         return x_dist + y_dist
 
+    def _double_maze_manhattan_distance(self, s1, s2):
+        # Maze wall positions
+        left_wall_bottom = self.inner_wall_max_dist + 1
+        right_wall_top = -self.inner_wall_max_dist - 1
+
+        s1 = s1.copy()
+        s2 = s2.copy()
+
+        if len(s1.shape) == 1:
+            s1 = s1[None]
+        if len(s2.shape) == 1:
+            s2 = s2[None]
+
+        # Since maze distances are symmetric, redefine s1,s2 for convenience 
+        # so that points in s1 are to the left of those in s2
+        combined = np.hstack((s1[:,None], s2[:,None]))
+        indices = np.argmin((s1[:,0], s2[:,0]), axis=0)
+        s1 = np.take_along_axis(combined, indices[:,None,None], axis=1).squeeze(axis=1)
+        s2 = np.take_along_axis(combined, 1 - indices[:,None,None], axis=1).squeeze(axis=1)
+
+        x1 = s1[:,0]
+        x2 = s2[:,0]
+
+        # Horizontal movement
+        x_dist = np.abs(x2 - x1)
+
+        # Vertical movement
+        boundary_ys = [right_wall_top, left_wall_bottom, right_wall_top, left_wall_bottom, 0]
+        boundary_xs = [-3/5 * self.boundary_dist, -1/5 * self.boundary_dist, 1/5 * self.boundary_dist, 3/5 * self.boundary_dist, self.boundary_dist, -4.0001]
+        y_directions = [-1, +1, -1, +1, 0] # +1 means need to get to bottom, -1 means need to get to top
+        curr_y, goal_y = s1[:,1], s2[:,1]
+        y_dist = np.zeros(len(s1))
+
+        for i in range(5):
+            # Get all points where s1 and s2 respectively are in the current vertical section of the maze
+            curr_in_section = x1 <= boundary_xs[i]
+    #         print(x1)
+    #         print(boundary_xs[i])
+            goal_in_section = np.logical_and(boundary_xs[i-1] < x2, x2 <= boundary_xs[i])
+            goal_after_section = x2 > boundary_xs[i]
+            
+    #         print("x1:", x1)
+    #         print("x2:", x2)
+    #         print(boundary_xs[i])
+    #         print(boundary_xs[i-1])
+    #         print(curr_in_section, goal_in_section)
+
+            # Both in current section: move directly to goal
+            mask = np.logical_and(curr_in_section, goal_in_section)
+            y_dist += mask * np.abs(curr_y - goal_y)
+            curr_y[mask] = goal_y[mask]
+
+            # s2 is further in maze: move to next corner
+            mask = np.logical_and(curr_in_section, np.logical_and(goal_after_section, y_directions[i] * (boundary_ys[i] - curr_y) > 0))
+            y_dist += mask * np.clip(y_directions[i] * (boundary_ys[i] - curr_y), 0, None)
+            curr_y[mask] = boundary_ys[i]
+
+    #     print(x_dist, y_dist)
+        return x_dist + y_dist
+
     def compute_rewards(self, actions, obs, reward_type=None):
         reward_type = reward_type or self.reward_type
 
@@ -370,7 +490,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
             'is_success',
             'ext_reward',
             'count_bonus',
-        ]:
+        ] + (['is_sparse_success'] if self.sparse_goals is not None else []):
             stat_name = stat_name
             stat = get_stat_in_paths(paths, 'env_infos', stat_name)
             statistics.update(create_stats_ordered_dict(
@@ -810,26 +930,26 @@ class Point2DWallEnv(Point2DEnv):
                 VerticalWall(
                     self.ball_radius,
                     -3/5 * self.boundary_dist,
-                    -self.inner_wall_max_dist,
+                    -self.inner_wall_max_dist - 1,
                     self.boundary_dist
                 ),
                 VerticalWall(
                     self.ball_radius,
                     -1/5 * self.boundary_dist,
                     -self.boundary_dist,
-                    self.inner_wall_max_dist,
+                    self.inner_wall_max_dist + 1,
                 ),
                 VerticalWall(
                     self.ball_radius,
                     1/5 * self.boundary_dist,
-                    -self.inner_wall_max_dist,
+                    -self.inner_wall_max_dist - 1,
                     self.boundary_dist
                 ),
                 VerticalWall(
                     self.ball_radius,
                     3/5 * self.boundary_dist,
                     -self.boundary_dist,
-                    self.inner_wall_max_dist,
+                    self.inner_wall_max_dist + 1,
                 ),
             ],
             "hard-maze": [
