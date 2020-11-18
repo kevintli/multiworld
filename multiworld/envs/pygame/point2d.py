@@ -205,13 +205,10 @@ class Point2DEnv(MultitaskEnv, Serializable):
         if len(goals.shape) == 1:
             goals = goals[None]
         for goal in goals:
-            dist = distance_fn(self._position - goal, axis=-1)
+            dist = distance_fn(self._position, goal)
             dists.append(dist)
         min_dist = np.array(dists).min(axis=0)
         return min_dist
-
-    def _l2_distance_fn(self, s1, s2):
-        return np.linalg.norm(s1 - s2, axis=-1)
 
     def reset(self):
         # TODO: Make this more general
