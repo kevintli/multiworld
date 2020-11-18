@@ -199,7 +199,8 @@ class Point2DEnv(MultitaskEnv, Serializable):
         done = False
         return ob, reward, done, info
 
-    def compute_min_dist(self, goals, distance_fn=self._l2_distance_fn):
+    def compute_min_dist(self, goals, 
+                         distance_fn=lambda s1, s2: np.linalg.norm(s1 - s2, axis=-1)):
         dists = []
         if len(goals.shape) == 1:
             goals = goals[None]
@@ -446,6 +447,10 @@ class Point2DEnv(MultitaskEnv, Serializable):
         d = np.linalg.norm(achieved_goals - desired_goals, axis=-1)
         if reward_type == "sparse":
             r = -(d > self.target_radius).astype(np.float32)
+        elif reward_type == "multi-sparse":
+            goals, threshold = self.sparse_goals
+            min_dist = np.array([self.compute_min_dist(goals)])
+            r = -(min_dist > self.target_radius).astype(np.float32)
         elif reward_type == "dense":
             r = -d
         elif reward_type == "vectorized_dense":
