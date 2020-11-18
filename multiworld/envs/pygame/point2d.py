@@ -188,7 +188,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
                 info['manhattan_dist_to_target'] = self._medium_maze_manhattan_distance(ob['state_achieved_goal'], ob['state_desired_goal'])
             elif self.wall_shape == 'hard-maze':
                 info['manhattan_dist_to_target'] = self._hard_maze_goal_distance(ob['state_achieved_goal'], ob['state_desired_goal'])
-            elif self.wall_shape == 'double-maze':
+            elif self.wall_shape == 'double-medium-maze':
                 goals, threshold = self.sparse_goals
                 info['manhattan_dist_to_sparse_goal'] = self.compute_min_dist(goals, self._double_maze_manhattan_distance)
                 info['manhattan_dist_to_target'] = self.compute_min_dist(ob['state_desired_goal'], self._double_maze_manhattan_distance)
