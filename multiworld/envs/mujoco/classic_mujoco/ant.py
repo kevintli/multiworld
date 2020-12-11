@@ -25,6 +25,9 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
     def __init__(
             self,
             reward_type='dense',
+            count_bonus_coeff=None,
+            n_bins=16,
+            target_radius=0.5, # Required distance to goal when using sparse reward
             norm_order=2,
             frame_skip=5,
             two_frames=False,
@@ -34,6 +37,7 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
             goal_low=list([-6, -6]),
             goal_high=list([6, 6]),
             model_path='classic_mujoco/normal_gear_ratio_ant.xml',
+            use_low_gear_ratio=False,
             goal_is_xy=False,
             goal_is_qpos=False,
             init_qpos=None,
@@ -42,7 +46,8 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
             init_xy_mode='corner',
             terminate_when_unhealthy=False,
             healthy_z_range=(0.2, 0.9),
-            health_reward=10,
+            # health_reward=10,
+            done_penalty=0,
             goal_sampling_strategy='uniform',
             presampled_goal_paths='',
             *args,
@@ -55,6 +60,8 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
         assert not goal_is_xy or not goal_is_qpos
         self.quick_init(locals())
         MultitaskEnv.__init__(self)
+        if use_low_gear_ratio:
+            model_path = "classic_mujoco/ant_maze_gear30_small_dt3_with_invis.xml"
         MujocoEnv.__init__(self,
                            model_path=get_asset_full_path(model_path),
                            frame_skip=frame_skip,
@@ -67,6 +74,10 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
 
         self.action_space = Box(-np.ones(8), np.ones(8), dtype=np.float32)
         self.reward_type = reward_type
+        self.count_bonus_coeff = count_bonus_coeff
+        self.n_bins = n_bins
+        self.bin_counts = np.ones((self.n_bins, self.n_bins))
+        self.target_radius = target_radius
         self.norm_order = norm_order
         self.goal_is_xy = goal_is_xy
         self.goal_is_qpos = goal_is_qpos
@@ -75,7 +86,8 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
         print(f"[Ant] Diagnostics goal: {self.diagnostics_goal}")
         self.init_xy_mode = init_xy_mode
         self.terminate_when_unhealthy = terminate_when_unhealthy
-        self._healthy_reward = health_reward
+        # self._healthy_reward = health_reward
+        self._done_penalty = done_penalty
         self._healthy_z_range = healthy_z_range
 
         self.model_path = model_path
@@ -155,19 +167,48 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
         self._prev_obs = None
         self._cur_obs = None
 
+    def discretized_states(self, states, bins=None, low=None, high=None):
+        """
+        Converts continuous to discrete states.
+        
+        Params
+        - states: A shape (n, 2) batch of continuous observations
+        - bins: Number of bins for both x and y coordinates
+        - low: Lowest value (inclusive) for continuous x and y
+        - high: Highest value (inclusive) for continuous x and y
+        """
+        if bins is None:
+            bins = self.n_bins
+        if low is None:
+            low = self.obs_space.low[0]
+        if high is None:
+            high = self.obs_space.high[0]
+
+        bin_size = (high - low) / bins
+        shifted_states = states - low
+        return np.clip(shifted_states // bin_size, 0, bins - 1).astype(np.int32)
+
     def step(self, action):
         self._prev_obs = self._cur_obs
         self.do_simulation(np.array(action), self.frame_skip)
         ob = self._get_obs()
+
+        # Update bin counts (visitations)
+        disc = self.discretized_states(ob['xy_observation'])    
+        self.bin_counts[disc[0], disc[1]] += 1
+
         reward = self.compute_reward(action, ob)
         info = {}
         if self._xy_goal is not None:
             info['xy-distance'] = self._compute_xy_distances(
                 self.numpy_batchify_dict(ob)
             )
+        if self.count_bonus_coeff:
+            info['count_bonus'] = self._count_bonus
         if self.terminate_when_unhealthy:
             done = not self.is_healthy
-            reward += self._healthy_reward
+            if done:
+                reward += self._done_penalty
         else:
             done = False
         self._cur_obs = ob
@@ -287,6 +328,8 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
     def compute_rewards(self, actions, obs):
         if self.reward_type == 'xy_dense':
             r = - self._compute_xy_distances(obs)
+        elif self.reward_type == 'xy_sparse':
+            r = - (self._compute_xy_distances(obs) > self.target_radius).astype(np.float32)
         elif self.reward_type == 'dense':
             r = - self._compute_state_distances(obs)
         elif self.reward_type == 'qpos_dense':
@@ -295,7 +338,25 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
             r = - self._compute_vectorized_state_distances(obs)
         else:
             raise NotImplementedError("Invalid/no reward type.")
+
+        if self.count_bonus_coeff:
+            pos_d = self.discretized_states(obs['xy_achieved_goal']) 
+            self._count_bonus = self.count_bonus_coeff * 1 / np.sqrt(self.bin_counts[pos_d[:, 0], pos_d[:, 1]])
+            r += self._count_bonus
+
         return r
+
+    def get_grid_vals(self, bins=16, low=-4, high=4):
+        xs = np.linspace(low, high, bins)
+        ys = np.linspace(low, high, bins)
+        xys = np.meshgrid(xs, ys)
+        grid_vals = np.array(xys).transpose(1, 2, 0).reshape(-1, 2)
+        return grid_vals
+
+    def get_grid_count_bonuses(self):
+        grid_vals = self.discretized_states(self.get_grid_vals(bins=self.n_bins, low=self.obs_space.low[0], high=self.obs_space.high[0]))
+        count_bonuses = self.count_bonus_coeff * 1 / np.sqrt(self.bin_counts[grid_vals[:, 0], grid_vals[:, 1]])
+        return count_bonuses.reshape(self.n_bins, self.n_bins)
 
     def _compute_xy_distances(self, obs):
         achieved_goals = obs['xy_achieved_goal']

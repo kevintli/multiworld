@@ -1139,6 +1139,7 @@ def create_image_48_sawyer_pickup_easy_v0():
 def register_mujoco_envs():
     global REGISTERED
     if REGISTERED:
+        print("Skipping mujoco")
         return
     REGISTERED = True
     LOGGER.info("Registering multiworld mujoco gym environments")
@@ -1795,6 +1796,26 @@ def register_classic_mujoco_envs():
             reward_type='xy_dense',
             terminate_when_unhealthy=False,
         ),
+    )
+    register(
+        id='Ant-v0',
+        entry_point='multiworld.envs.mujoco.classic_mujoco.ant:AntEnv',
+        kwargs=dict(
+            goal_low=[5.5, -4.5],
+            goal_high=[5.5, -4.5],
+            goal_is_xy=True,
+            goal_is_qpos=False,
+            frame_skip=5,
+            init_qpos=[
+                -5.5, 4.5, 0.565, 1,
+                0, 0, 0,
+                0, 1., 0., -1., 0., -1., 0., 1.,
+            ],
+            init_xy_mode='corner',
+            goal_sampling_strategy='uniform',
+            reward_type='xy_dense',
+            terminate_when_unhealthy=False,
+        )
     )
     register(
         id='LowGearAnt-v0',
