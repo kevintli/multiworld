@@ -7,6 +7,11 @@ from multiworld.envs.env_util import get_stat_in_paths, \
 
 
 class AntMazeEnv(AntEnv):
+    def __init__(self, *args, **kwargs):
+        # (x position, y position, direction)
+        # direction of +1 means need to get to bottom, -1 means need to get to top
+        self.walls = kwargs.pop('walls', None)
+        super(AntMazeEnv, self).__init__(*args, **kwargs)
 
     def _sample_uniform_xy(self, batch_size):
         valid_goals = []
@@ -26,18 +31,14 @@ class AntMazeEnv(AntEnv):
 
     def step(self, action):
         ob, reward, done, info = super(AntMazeEnv, self).step(action)
-        if self.diagnostics_goal is not None:
+        if self.walls is not None:
             info['manhattan_dist_to_target'] = self._get_manhattan_distance(
-                ob['xy_achieved_goal'], self.diagnostics_goal
+                ob['xy_achieved_goal'], ob['xy_desired_goal']
             )
         return ob, reward, done, info
 
     def _get_manhattan_distance(self, s1, s2, invert_y=True):
-        # Maze wall positions
-        left_wall_x = -2.75
-        left_wall_bottom = 2.5
-        right_wall_x = 2.75
-        right_wall_top = -2.5
+        assert self.walls, "[AntMaze] Must define `walls` in order to compute valid Manhattan distance"
         
         s1 = s1.copy()
         s2 = s2.copy()
@@ -65,13 +66,13 @@ class AntMazeEnv(AntEnv):
         x_dist = np.abs(x2 - x1)
         
         # Vertical movement
-        boundary_ys = [left_wall_bottom, right_wall_top, 0]
-        boundary_xs = [left_wall_x, right_wall_x, 7, -7.0001]
-        y_directions = [1, -1, 0] # +1 means need to get to bottom, -1 means need to get to top
+        boundary_ys = [wall[1] for wall in self.walls] + [0]
+        boundary_xs = [wall[0] for wall in self.walls] + [7, -7.0001]
+        y_directions = [wall[2] for wall in self.walls] + [0]
         curr_y, goal_y = s1[:,1], s2[:,1]
         y_dist = np.zeros(len(s1))
         
-        for i in range(3):
+        for i in range(len(self.walls) + 1):
             # Get all points where s1 and s2 respectively are in the current vertical section of the maze
             curr_in_section = x1 <= boundary_xs[i]
             goal_in_section = np.logical_and(boundary_xs[i-1] < x2, x2 <= boundary_xs[i])
@@ -97,7 +98,7 @@ class AntMazeEnv(AntEnv):
 
     def compute_rewards(self, actions, obs):
         if self.reward_type == 'xy_manhattan':
-            r = - self._get_manhattan_distance(obs['xy_achieved_goal'], self.diagnostics_goal)
+            r = - self._get_manhattan_distance(obs['xy_achieved_goal'], obs['xy_desired_goal'])
         elif self.reward_type == 'xy_dense_fixed_goal':
             r = - self._compute_xy_distances_fixed(obs)
         else:
