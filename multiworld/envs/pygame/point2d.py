@@ -6,6 +6,9 @@ from gym import spaces
 from pygame import Color
 import collections
 
+from skimage import transform
+import skimage
+
 from multiworld.core.multitask_env import MultitaskEnv
 from multiworld.core.serializable import Serializable
 from multiworld.envs.env_util import (
@@ -45,6 +48,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
             n_bins=10,
             use_count_reward=False,
             show_discrete_grid=False,
+            convert_obs_to_image=False,
             **kwargs
     ):
         if walls is None:
@@ -72,6 +76,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
         self.show_goal = show_goal
         self.sparse_goals = sparse_goals
         self.shuffle_states = shuffle_states
+        self.convert_obs_to_image = convert_obs_to_image
 
         self.x_bins = np.linspace(-self.boundary_dist, self.boundary_dist, self.n_bins)
         self.y_bins = np.linspace(-self.boundary_dist, self.boundary_dist, self.n_bins)
@@ -266,10 +271,17 @@ class Point2DEnv(MultitaskEnv, Serializable):
                               self._random_mapping_y[states[:,1]][:,None]]) - 8) / 2
         return results
 
+    def _state_to_pixel_coords(self, states, state_min=-4, state_max=4, img_width=28):
+        coords = (states - state_min) * (img_width / (state_max - state_min))
+        
+        # Need to subtract 1 because pygame rendering shifts everything to the left/up by 1 for some reason
+        # (e.g. [-3, -3] is at 5, 5 instead of 6, 6). However this does not apply to the top/left edges.
+        return np.clip(coords, 0, None).astype(np.int32)
+
     def _get_obs(self):
         state_obs = self._get_shuffled_states(self._position.copy()).squeeze() \
             if self.shuffle_states else self._position.copy()
-
+            
         obs = collections.OrderedDict(
             observation=self._position.copy(),
             desired_goal=self._target_position.copy(),
@@ -541,7 +553,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
 
     """Functions for ImageEnv wrapper"""
 
-    def get_image(self, width=None, height=None):
+    def get_image(self, width=None, height=None, invert_colors=False):
         """Returns a black and white image"""
         if self.drawer is None:
             if width != height:
@@ -560,14 +572,33 @@ class Point2DEnv(MultitaskEnv, Serializable):
                           self.boundary_dist),
                 render_onscreen=self.render_onscreen,
             )
+
+        old_position = self._position
+        self._position = np.array([-4, -4])
+
         self.draw(self.drawer)
         img = self.drawer.get_image()
+        # img = skimage.transform.resize(img, (width, height), anti_aliasing=True, preserve_range=True)
+        self._position = old_position
+
         if self.images_are_rgb:
-            return img.transpose((1, 0, 2))
+            im = img.transpose((1, 0, 2))
         else:
             r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
-            img = (-r + b).transpose().flatten()
-            return img
+            im = (-r + b).transpose().flatten()
+
+        im[0:2, 0:2] = np.array([255, 255, 255])
+        im = 255 - im # Invert image - make background black, walls white
+        im = im[None]
+        
+        # Set pixel at ball position to blue for each individual observation
+        pixel_coords = self._state_to_pixel_coords(self._position, img_width=width)[None]
+        for i in range(1):
+            for j in range(1):    
+                im[range(len(pixel_coords)), np.clip(pixel_coords[:,1]+i, 0, 27), np.clip(pixel_coords[:,0]+j, 0, 27)] = np.array([0, 0, 255])
+                
+        self._position = old_position
+        return im[0] / 255
 
     def set_to_goal(self, goal_dict):
         goal = goal_dict["state_desired_goal"]
@@ -636,12 +667,12 @@ class Point2DEnv(MultitaskEnv, Serializable):
             )
         drawer.render()
 
-    def render(self, mode='human', width=None, height=None, close=False):
+    def render(self, mode='human', width=None, height=None, invert_colors=False, close=False):
         if close:
             self.render_drawer = None
             return
         if mode =='rgb_array':
-            return self.get_image(width=width, height=height)
+            return self.get_image(width=width, height=height, invert_colors=invert_colors)
 
         if self.render_drawer is None or self.render_drawer.terminated:
             self.render_drawer = PygameViewer(
