@@ -38,6 +38,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
             target_radius=0.5,
             boundary_dist=4,
             ball_radius=0.15,
+            ball_pixel_radius=0,
             walls=None,
             init_pos_range=None,
             target_pos_range=None,
@@ -68,6 +69,7 @@ class Point2DEnv(MultitaskEnv, Serializable):
         self.target_radius = target_radius
         self.boundary_dist = boundary_dist
         self.ball_radius = ball_radius
+        self.ball_pixel_radius = ball_pixel_radius
         self.walls = walls
         self.n_bins = n_bins
         self.use_count_reward = use_count_reward
@@ -593,8 +595,8 @@ class Point2DEnv(MultitaskEnv, Serializable):
         
         # Set pixel at ball position to blue for each individual observation
         pixel_coords = self._state_to_pixel_coords(self._position, img_width=width)[None]
-        for i in range(1):
-            for j in range(1):    
+        for i in range(-self.ball_pixel_radius, self.ball_pixel_radius+1):
+            for j in range(-self.ball_pixel_radius, self.ball_pixel_radius+1):    
                 im[range(len(pixel_coords)), np.clip(pixel_coords[:,1]+i, 0, 27), np.clip(pixel_coords[:,0]+j, 0, 27)] = np.array([0, 0, 255])
                 
         self._position = old_position

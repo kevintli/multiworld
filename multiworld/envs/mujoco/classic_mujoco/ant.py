@@ -341,7 +341,7 @@ class AntEnv(MujocoEnv, Serializable, MultitaskEnv, metaclass=abc.ABCMeta):
 
         if self.count_bonus_coeff:
             pos_d = self.discretized_states(obs['xy_achieved_goal']) 
-            self._count_bonus = self.count_bonus_coeff * 1 / np.sqrt(self.bin_counts[pos_d[:, 0], pos_d[:, 1]])
+            self._count_bonus = self.count_bonus_coeff * 1 / self.bin_counts[pos_d[:, 0], pos_d[:, 1]]
             r += self._count_bonus
 
         return r
